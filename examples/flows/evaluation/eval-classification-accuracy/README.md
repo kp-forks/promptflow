@@ -9,12 +9,12 @@ Tools used in this flow：
 
 In this flow, you will learn
 - how to compose a point based evaluation flow, where you can calculate point-wise metrics.
-- the way to log metrics. use `from promptflow import log_metric`
+- the way to log metrics. use `from promptflow.core import log_metric`
     - see file [calculate_accuracy.py](calculate_accuracy.py)
 
 ### 0. Setup connection
 
-Prepare your Azure Open AI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
+Prepare your Azure OpenAI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
 
 ```bash
 # Override keys with --set to avoid yaml file changes
@@ -38,8 +38,11 @@ pf flow test --flow . --node grade --inputs groundtruth=groundtruth prediction=p
 There are two ways to evaluate an classification flow.
 
 ```bash
-pf run create --flow . --data ./data.jsonl --stream
+pf run create --flow . --data ./data.jsonl --column-mapping groundtruth='${data.groundtruth}' prediction='${data.prediction}' --stream
 ```
+
+You can also skip providing `column-mapping` if provided data has same column name as the flow.
+Reference [here](https://aka.ms/pf/column-mapping) for default behavior when `column-mapping` not provided in CLI.
 
 ### 3. create run against other flow run
 

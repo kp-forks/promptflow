@@ -1,16 +1,17 @@
 # pf
 
-:::{admonition} Experimental feature
-This is an experimental feature, and may change at any time. Learn [more](../how-to-guides/faq.md#stable-vs-experimental).
-:::
-
 Manage prompt flow resources with the prompt flow CLI.
 
-| Command | Description |
-| --- | --- |
-| [pf flow](#pf-flow) | Manage flows. |
-| [pf connection](#pf-connection) | Manage connections. |
-| [pf run](#pf-run) | Manage runs. |
+| Command                         | Description                    |
+|---------------------------------|--------------------------------|
+| [pf flow](#pf-flow)             | Manage flows.                  |
+| [pf connection](#pf-connection) | Manage connections.            |
+| [pf run](#pf-run)               | Manage runs.                   |
+| [pf tool](#pf-tool)             | Init or list tools.            |
+| [pf config](#pf-config)         | Manage config for current user. |
+| [pf service](#pf-service)       | Manage prompt flow service. |
+| [pf upgrade](#pf-upgrade)       | Upgrade prompt flow CLI.       |
+| [pf trace](#pf-trace)           | Manage traces.                 |
 
 ## pf flow
 
@@ -20,8 +21,9 @@ Manage promptflow flow flows.
 | --- | --- |
 | [pf flow init](#pf-flow-init) | Initialize a prompt flow directory. |
 | [pf flow test](#pf-flow-test) | Test the prompt flow or flow node. |
+| [pf flow validate](#pf-flow-validate) | Validate a flow and generate `flow.tools.json` for it. |
 | [pf flow build](#pf-flow-build) | Build a flow for further sharing or deployment. |
-| [pf flow serve](#pf-flow-serve) | Serving a flow as an endpoint. |
+| [pf flow serve](#pf-flow-serve) | Serve a flow as an endpoint. |
 
 ### pf flow init
 
@@ -95,6 +97,8 @@ pf flow test --flow
              [--debug]
              [--interactive]
              [--verbose]
+             [--ui]
+             [--collection]
 ```
 
 #### Examples
@@ -105,7 +109,19 @@ Test the flow.
 pf flow test --flow <path-to-flow-directory>
 ```
 
-Test the flow with single line from input file.
+Test the flow from `json` file.
+
+```bash
+pf flow test --flow <path-to-flow-directory> --inputs inputs.json
+```
+
+Test the flow with first line from `jsonl` file.
+
+```bash
+pf flow test --flow <path-to-flow-directory> --inputs inputs.jsonl
+```
+
+Test the flow with input values.
 
 ```bash
 pf flow test --flow <path-to-flow-directory> --inputs data_key1=data_val1 data_key2=data_val2
@@ -133,6 +149,18 @@ Chat in the flow.
 
 ```bash
 pf flow test --flow <path-to-flow-directory> --node <node_name> --interactive
+```
+
+Chat in the chat window.
+
+```bash
+pf flow test --flow <path-to-flow-directory> --ui
+```
+
+Test the flow while log traces to a specific collection.
+
+```bash
+pf flow test --flow <path-to-flow-directory> --collection <collection>
 ```
 
 #### Required Parameter
@@ -166,6 +194,34 @@ Start a interactive chat session for chat flow.
 `--verbose`
 
 Displays the output for each step in the chat flow.
+
+`--ui`
+
+The flag to start an interactive chat experience in local chat window.
+
+### pf flow validate
+
+Validate the prompt flow and generate a `flow.tools.json` under `.promptflow`. This file is required when using flow as a component in a Azure ML pipeline.
+
+```bash
+pf flow validate --source
+                 [--debug]
+                 [--verbose]
+```
+
+#### Examples
+
+Validate the flow.
+
+```bash
+pf flow validate --source <path-to-flow>
+```
+
+#### Required Parameter
+
+`--source`
+
+The flow source to validate.
 
 ### pf flow build
 
@@ -233,6 +289,8 @@ pf flow serve --source
               [--environment-variables]
               [--verbose]
               [--debug]
+              [--skip-open-browser]
+              [--engine]
 ```
 
 #### Examples
@@ -247,6 +305,12 @@ Serve flow as an endpoint with specific port and host.
 
 ```bash
 pf flow serve --source <path-to-flow> --port <port> --host <host> --environment-variables key1="`${my_connection.api_key}`" key2="value2"
+```
+
+Serve flow as an endpoint with specific port, host, environment-variables and fastapi serving engine.
+
+```bash
+pf flow serve --source <path-to-flow> --port <port> --host <host> --environment-variables key1="`${my_connection.api_key}`" key2="value2" --engine fastapi
 ```
 
 #### Required Parameter
@@ -276,6 +340,14 @@ Show more details for each step during serve.
 `--debug`
 
 Show debug information during serve.
+
+`--skip-open-browser`
+
+Skip opening browser after serve. Store true parameter.
+
+`--engine`
+
+Switch python serving engine between `flask` amd `fastapi`, default to `flask`.
 
 ## pf connection
 
@@ -432,6 +504,8 @@ pf run create [--file]
               [--environment-variables]
               [--connections]
               [--set]
+              [--source]
+              [--resume-from] # require promptflow>=1.8.0, and original run created with promptflow>=1.8.0
 ```
 
 #### Examples
@@ -442,10 +516,34 @@ Create a run with YAML file.
 pf run create -f <yaml-filename>
 ```
 
+Create a run with YAML file and replace another data in the YAML file.
+
+```bash
+pf run create -f <yaml-filename> --data <path-to-new-data-file-relative-to-yaml-file>
+```
+
 Create a run from flow directory and reference a run.
 
 ```bash
 pf run create --flow <path-to-flow-directory> --data <path-to-data-file> --column-mapping groundtruth='${data.answer}' prediction='${run.outputs.category}' --run <run-name> --variant '${summarize_text_content.variant_0}' --stream
+```
+
+Create a run from an existing run record folder.
+
+```bash
+pf run create --source <path-to-run-folder>
+```
+
+Create a run by specifying the `resume_from`. (Require promptflow>=1.8.0, and original run created with promptflow>=1.8.0)
+
+Succeeded line result of the original run will be reused, only remaining/failed lines will be run.
+
+```bash
+pf run create --resume-from <original-run-name>
+```
+
+```bash
+pf run create --resume-from <original-run-name> --name <new-run-name> --set display_name='A new run' description='my run description' tags.Type=Test
 ```
 
 #### Optional Parameters
@@ -456,15 +554,15 @@ Local path to the YAML file containing the prompt flow run specification; can be
 
 `--flow`
 
-Local path to the flow directory.
+Local path to the flow directory. If --file is provided, this path should be relative path to the file.
 
 `--data`
 
-Local path to the data file.
+Local path to the data file. If --file is provided, this path should be relative path to the file.
 
 `--column-mapping`
 
-Inputs column mapping, use `${data.xx}` to refer to data file columns, use `${run.inputs.xx}` and `${run.outputs.xx}` to refer to run inputs/outputs columns.
+Inputs column mapping, use `${data.xx}` to refer to data columns, use `${run.inputs.xx}` to refer to referenced run's data columns, and `${run.outputs.xx}` to refer to run outputs columns.
 
 `--run`
 
@@ -495,6 +593,10 @@ Example: `--connections node1.connection=test_llm_connection node1.deployment_na
 
 Update an object by specifying a property path and value to set.
 Example: `--set property1.property2=<value>`.
+
+`--source`
+
+Local path to the existing run record folder.
 
 ### pf run update
 
@@ -655,3 +757,348 @@ pf run restore --name
 `--name -n`
 
 Name of the run.
+
+## pf tool
+
+Manage promptflow tools.
+
+| Command | Description |
+| --- | --- |
+| [pf tool init](#pf-tool-init) | Initialize a tool directory. |
+| [pf tool list](#pf-tool-list) | List all tools in the environment. |
+| [pf tool validate](#pf-tool-validate) | Validate tools. |
+
+### pf tool init
+
+Initialize a tool directory.
+
+```bash
+pf tool init [--package]
+             [--tool]
+             [--set]
+```
+
+#### Examples
+
+Creating a package tool from scratch.
+
+```bash
+pf tool init --package <package-name> --tool <tool-name>
+```
+
+Creating a package tool with extra info.
+
+```bash
+pf tool init --package <package-name> --tool <tool-name> --set icon=<icon-path> category=<tool-category> tags="{'<key>': '<value>'}"
+```
+
+Creating a package tool from scratch.
+
+```bash
+pf tool init --package <package-name> --tool <tool-name>
+```
+
+Creating a python tool from scratch.
+
+```bash
+pf tool init --tool <tool-name>
+```
+
+#### Optional Parameters
+
+`--package`
+
+The package name to create.
+
+`--tool`
+
+The tool name to create.
+
+`--set`
+
+Set extra information about the tool, like category, icon and tags. Example: --set <key>=<value>.
+
+### pf tool list
+
+List all tools in the environment.
+
+```bash
+pf tool list [--flow]
+```
+
+#### Examples
+
+List all package tool in the environment.
+
+```bash
+pf tool list
+```
+
+List all package tool and code tool in the flow.
+
+```bash
+pf tool list --flow <path-to-flow-direcotry>
+```
+
+#### Optional Parameters
+
+`--flow`
+
+The flow directory.
+
+### pf tool validate
+
+Validate tool.
+
+```bash
+pf tool validate --source
+```
+
+#### Examples
+
+Validate single function tool.
+
+```bash
+pf tool validate -–source <package-name>.<module-name>.<tool-function>
+```
+
+Validate all tool in a package tool.
+
+```bash
+pf tool validate -–source <package-name>
+```
+
+Validate tools in a python script.
+
+```bash
+pf tool validate --source <path-to-tool-script>
+```
+
+#### Required Parameter
+
+`--source`
+
+The tool source to be used.
+
+
+## pf config
+
+Manage config for current user.
+
+| Command                           | Description                                |
+|-----------------------------------|--------------------------------------------|
+| [pf config set](#pf-config-set)   | Set prompt flow configs for current user.  |
+| [pf config show](#pf-config-show) | Show prompt flow configs for current user. |
+
+### pf config set
+
+Set prompt flow configs for current user, configs will be stored at ~/.promptflow/pf.yaml.
+
+```bash
+pf config set
+```
+
+#### Examples
+
+**Connection provider**
+
+Set connection provider to Azure ML workspace or Azure AI project for current user.
+
+```bash
+pf config set connection.provider="azureml://subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.MachineLearningServices/workspaces/<workspace-or-project-name>"
+```
+
+**Tracing**
+
+Set trace destination to Azure ML workspace or Azure AI project.
+
+```bash
+pf config set trace.destination="azureml://subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.MachineLearningServices/workspaces/<workspace-or-project-name>"
+```
+
+Only log traces to local.
+
+```bash
+pf config set trace.destination="local"
+```
+
+Disable tracing feature.
+
+```bash
+pf config set trace.destination="none"
+```
+
+### pf config show
+
+Show prompt flow configs for current user.
+
+```bash
+pf config show
+```
+
+#### Examples
+
+Show prompt flow for current user.
+
+```bash
+pf config show
+```
+
+## pf service
+
+Manage prompt flow service.
+
+| Command                                 | Description                                   |
+|-----------------------------------------|-----------------------------------------------|
+| [pf service start](#pf-service-start)   | Start prompt flow service.                    |
+| [pf service stop](#pf-service-stop)     | Stop prompt flow service.                     |
+| [pf service status](#pf-service-status) | Display the started prompt flow service info. |
+
+### pf service start
+
+Start the prompt flow service.
+
+```bash
+pf service start [--port]
+                 [--force]
+                 [--debug]
+```
+
+#### Examples
+Prompt flow will try to start the service on the default port 23333. If the port is already taken, prompt flow will 
+sequentially probe new ports, incrementing by one each time. Prompt flow retains the port number for future reference 
+and will utilize it for subsequent service startups.
+
+```bash
+pf service start
+```
+
+Forcefully start the prompt flow service. If the port is already in use, the existing service will be terminated and 
+restart a new service
+
+```bash
+pf service start --force
+```
+
+Start the prompt flow service with a specified port. If the port is already taken, prompt flow will raise an error 
+unless forcefully start the service with the `--force` flag. Upon availability, prompt flow retains the port number for 
+future reference and will utilize it for subsequent service startups.
+
+```bash
+pf service start --port 65553
+```
+
+Start prompt flow service in foreground, displaying debug level logs directly in the terminal.
+```bash
+pf service start --debug
+```
+
+#### Optional Parameters
+
+`--port -p`
+
+The designated port of the prompt flow service and port number will be remembered if port is available.
+
+`--force`
+
+Force restart the existing service if the port is used.
+
+`--debug`
+
+Start prompt flow service in foreground, displaying debug level logs directly in the terminal.
+
+
+
+### pf service stop
+
+Stop prompt flow service.
+
+```bash
+pf service stop [--debug]
+```
+
+#### Example
+
+Stop prompt flow service.
+
+```bash
+pf service stop
+```
+
+#### Optional Parameter
+
+`--debug`
+
+The flag to turn on debug mode for cli.
+
+### pf service status
+
+Display the started prompt flow service info.
+
+```bash
+pf service status
+```
+
+
+## pf upgrade
+
+Upgrade prompt flow CLI.
+
+| Command                     | Description                 |
+|-----------------------------|-----------------------------|
+| [pf upgrade](#pf-upgrade)   | Upgrade prompt flow CLI.    |
+
+### Examples
+
+Upgrade prompt flow without prompt and run non-interactively.
+
+```bash
+pf upgrade --yes
+```
+
+## pf trace
+
+Manage prompt flow traces.
+
+| Command                             | Description   |
+| ----------------------------------- | ------------- |
+| [pf trace delete](#pf-trace-delete) | Delete traces |
+
+### pf trace delete
+
+Delete traces.
+
+```bash
+pf trace delete [--run]
+                [--collection]
+                [--started-before]  # should combine with `collection`
+```
+
+#### Examples
+
+Delete traces comes from a specific run.
+
+```bash
+pf trace delete --run <run-name>
+```
+
+Delete traces in a specific collection.
+
+```bash
+pf trace delete --collection <collection>
+```
+
+Delete traces in a specific collection started before a specific time.
+
+```bash
+# `started-before` should be in ISO 8601 format
+pf trace delete --collection <collection> --started-before '2024-03-19T15:17:23.807563'
+```
+
+## Autocomplete
+
+To activate autocomplete features for the pf CLI you need to add the following snippet to your ~/.bashrc or ~/.zshrc:
+
+```bash
+source <promptflow_package_install_root>/pf.completion.sh
+```

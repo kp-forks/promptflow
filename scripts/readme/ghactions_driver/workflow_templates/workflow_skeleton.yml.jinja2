@@ -12,8 +12,15 @@ on:
     paths: {{ path_filter }}
   workflow_dispatch:
 
+env:
+  IS_IN_CI_PIPELINE: "true"
+
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
-  {{ ci_name }}:
+  {{ workflow_name }}:
 {%- filter indent(width=4) -%}
 {% block steps %}
 {% endblock steps %}

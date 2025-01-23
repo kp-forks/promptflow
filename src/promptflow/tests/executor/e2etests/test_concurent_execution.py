@@ -9,7 +9,8 @@ from promptflow._utils.logger_utils import LogContext
 from promptflow.contracts.run_info import Status
 from promptflow.contracts.run_mode import RunMode
 from promptflow.executor._flow_nodes_scheduler import RUN_FLOW_NODES_LINEARLY
-from promptflow.executor.flow_executor import FlowExecutor, LineResult
+from promptflow.executor._result import LineResult
+from promptflow.executor.flow_executor import FlowExecutor
 
 from ..utils import get_flow_inputs, get_yaml_file, load_content
 
@@ -46,7 +47,7 @@ class TestConcurrentExecution:
     def test_concurrent_run_with_exception(self):
         executor = FlowExecutor.create(get_yaml_file(FLOW_FOLDER), {}, raise_ex=False)
         flow_result = executor.exec_line({"input1": "True", "input2": "False", "input3": "False", "input4": "False"})
-        assert 2 < flow_result.run_info.system_metrics["duration"] < 4, "Should at least finish the running job."
+        assert 1 > flow_result.run_info.system_metrics["duration"], "Will finish quickly with exception."
         error_response = ErrorResponse.from_error_dict(flow_result.run_info.error)
         assert error_response.error_code_hierarchy == "UserError/ToolExecutionError"
 

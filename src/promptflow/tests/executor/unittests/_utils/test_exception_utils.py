@@ -5,7 +5,6 @@ from traceback import TracebackException
 import pytest
 
 from promptflow._core._errors import ToolExecutionError
-from promptflow._core.operation_context import OperationContext
 from promptflow._utils.exception_utils import (
     ErrorResponse,
     ExceptionPresenter,
@@ -13,7 +12,9 @@ from promptflow._utils.exception_utils import (
     get_tb_next,
     infer_error_code_from_class,
     last_frame_info,
+    remove_suffix,
 )
+from promptflow._version import VERSION
 from promptflow.exceptions import (
     ErrorTarget,
     PromptflowException,
@@ -21,6 +22,7 @@ from promptflow.exceptions import (
     UserErrorException,
     ValidationException,
 )
+from promptflow.tracing._operation_context import OperationContext
 
 
 def set_inner_exception_by_parameter():
@@ -301,11 +303,8 @@ class TestExceptionPresenter:
         assert dct == {
             "code": "UserError",
             "message": "Execution failure in 'MyTool': (ZeroDivisionError) division by zero",
-            "messageFormat": "Execution failure in '{node_name}': {error_type_and_message}",
-            "messageParameters": {
-                "error_type_and_message": "(ZeroDivisionError) division by zero",
-                "node_name": "MyTool",
-            },
+            "messageFormat": "Execution failure in '{node_name}'.",
+            "messageParameters": {"node_name": "MyTool"},
             "referenceCode": "Tool",
             "innerError": {
                 "code": "ToolExecutionError",
@@ -333,6 +332,8 @@ class TestExceptionPresenter:
 @pytest.mark.unittest
 class TestErrorResponse:
     def test_from_error_dict(self):
+        OperationContext.get_instance().append_user_agent(f"promptflow/{VERSION}")
+
         error_dict = {
             "code": "UserError",
             "message": "Flow run failed.",
@@ -369,6 +370,8 @@ class TestErrorResponse:
         }
 
     def test_from_exception(self):
+        OperationContext.get_instance().append_user_agent(f"promptflow/{VERSION}")
+
         with pytest.raises(CustomizedException) as e:
             raise_general_exception()
 
@@ -486,7 +489,15 @@ class TestErrorResponse:
             assert error_info["filename"].endswith("test_exception_utils.py")
             assert error_info["lineno"] > 0
             assert error_info["name"] == "code_with_bug"
-            assert re.match(TOOL_EXECUTION_ERROR_TRACEBACK, error_info["traceback"])
+            assert re.match(
+                r"Traceback \(most recent call last\):\n"
+                r'  File ".*test_exception_utils.py", line .*, in code_with_bug\n'
+                r"    1 / 0\n"
+                r"(.*\n)?"  # Python >= 3.11 add extra line here like a pointer.
+                r"ZeroDivisionError: division by zero\n",
+                error_info["traceback"],
+            )
+            # assert re.match(TOOL_EXECUTION_ERROR_TRACEBACK, error_info["traceback"])
         else:
             assert error_info == {}
 
@@ -616,10 +627,10 @@ class TestExceptions:
             raise_tool_execution_error()
 
         e = e.value
-        assert e.reference_code == ErrorTarget.TOOL
+        assert e.reference_code == ErrorTarget.TOOL.value
         module = "promptflow_vectordb.tool.faiss_index_loopup"
         e.module = module
-        assert e.reference_code == f"{ErrorTarget.TOOL}/{module}"
+        assert e.reference_code == f"{ErrorTarget.TOOL.value}/{module}"
 
     @pytest.mark.parametrize(
         "func_that_raises_exception",
@@ -651,7 +662,14 @@ class TestExceptions:
         assert last_frame_info.get("lineno") > 0
         assert last_frame_info.get("name") == "code_with_bug"
 
-        assert re.match(TOOL_EXECUTION_ERROR_TRACEBACK, e.value.tool_traceback)
+        assert re.match(
+            r"Traceback \(most recent call last\):\n"
+            r'  File ".*test_exception_utils.py", line .*, in code_with_bug\n'
+            r"    1 / 0\n"
+            r"(.*\n)?"  # Python >= 3.11 add extra line here like a pointer.
+            r"ZeroDivisionError: division by zero\n",
+            e.value.tool_traceback,
+        )
 
     def test_code_hierarchy(self):
         with pytest.raises(ToolExecutionError) as e:
@@ -696,7 +714,14 @@ class TestExceptions:
         assert re.match(r".*test_exception_utils.py", info_0_value["filename"])
         assert info_0_value.get("lineno") > 0
         assert info_0_value.get("name") == "code_with_bug"
-        assert re.match(TOOL_EXECUTION_ERROR_TRACEBACK, info_0_value.get("traceback"))
+        assert re.match(
+            r"Traceback \(most recent call last\):\n"
+            r'  File ".*test_exception_utils.py", line .*, in code_with_bug\n'
+            r"    1 / 0\n"
+            r"(.*\n)?"  # Python >= 3.11 add extra line here like a pointer.
+            r"ZeroDivisionError: division by zero\n",
+            info_0_value.get("traceback"),
+        )
 
     def test_additional_info_for_empty_inner_error(self):
         ex = ToolExecutionError(node_name="Node1")
@@ -738,11 +763,8 @@ class TestExceptions:
 
         assert result == {
             "message": "Execution failure in 'MyTool': (ZeroDivisionError) division by zero",
-            "messageFormat": "Execution failure in '{node_name}': {error_type_and_message}",
-            "messageParameters": {
-                "error_type_and_message": "(ZeroDivisionError) division by zero",
-                "node_name": "MyTool",
-            },
+            "messageFormat": "Execution failure in '{node_name}'.",
+            "messageParameters": {"node_name": "MyTool"},
             "referenceCode": "Tool",
             "code": "UserError",
             "innerError": {
@@ -793,14 +815,21 @@ class TestExceptions:
         assert error_dict == {
             "code": "UserError",
             "message": "Execution failure in 'MyTool': (ZeroDivisionError) division by zero",
-            "messageFormat": "Execution failure in '{node_name}': {error_type_and_message}",
-            "messageParameters": {
-                "node_name": "MyTool",
-                "error_type_and_message": "(ZeroDivisionError) division by zero",
-            },
+            "messageFormat": "Execution failure in '{node_name}'.",
+            "messageParameters": {"node_name": "MyTool"},
             "referenceCode": "Tool",
             "innerError": {
                 "code": "ToolExecutionError",
                 "innerError": None,
             },
         }
+
+    def test_remove_suffix(self):
+        assert remove_suffix("PackageToolNotFoundError.", ".") == "PackageToolNotFoundError"
+        assert remove_suffix("PackageToolNotFoundError", "Error") == "PackageToolNotFound"
+        assert remove_suffix("PackageToolNotFoundError", "PackageToolNotFoundError") == ""
+        assert remove_suffix("PackageToolNotFoundError", "NonExistedSuffix") == "PackageToolNotFoundError"
+        assert remove_suffix("PackageToolNotFoundError", "") == "PackageToolNotFoundError"
+        assert remove_suffix("PackageToolNotFoundError", None) == "PackageToolNotFoundError"
+        assert remove_suffix("", "NonExistedSuffix") == ""
+        assert remove_suffix(None, "NonExistedSuffix") is None

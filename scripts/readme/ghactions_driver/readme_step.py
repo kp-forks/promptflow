@@ -54,6 +54,19 @@ class AzureLoginStep(Step):
         )
 
 
+class LoginAgainStep(Step):
+    def __init__(self) -> None:
+        Step.__init__(self, "Azure Login Again")
+
+    def get_workflow_step(self) -> str:
+        template = Step.get_workflow_template("step_login_again.yml.jinja2")
+        return template.render(
+            {
+                "step_name": self.workflow_name,
+            }
+        )
+
+
 class InstallDependenciesStep(Step):
     def __init__(self) -> None:
         Step.__init__(self, "Prepare requirements")
@@ -129,12 +142,40 @@ class ExtractStepsAndRunGPTFour(Step):
         )
 
 
+class ExecuteCommand(Step):
+    def __init__(self) -> None:
+        Step.__init__(self, "Execute Command")
+
+    def get_workflow_step(self) -> str:
+        template = Step.get_workflow_template(
+            "step_execute_command.yml.jinja2"
+        )
+        return template.render(
+            {
+                "step_name": self.workflow_name,
+                "working_dir": ReadmeSteps.working_dir,
+            }
+        )
+
+
 class CreateEnv(Step):
     def __init__(self) -> None:
         Step.__init__(self, "Refine .env file")
 
     def get_workflow_step(self) -> str:
         template = Step.get_workflow_template("step_create_env.yml.jinja2")
+        content = template.render(
+            {"step_name": self.workflow_name, "working_dir": ReadmeSteps.working_dir}
+        )
+        return content
+
+
+class CreateEnvGPTFour(Step):
+    def __init__(self) -> None:
+        Step.__init__(self, "Refine .env file")
+
+    def get_workflow_step(self) -> str:
+        template = Step.get_workflow_template("step_create_env_gpt4.yml.jinja2")
         content = template.render(
             {"step_name": self.workflow_name, "working_dir": ReadmeSteps.working_dir}
         )
@@ -196,6 +237,10 @@ class ReadmeSteps:
         return ReadmeSteps.remember_step(CreateEnv())
 
     @staticmethod
+    def create_env_gpt4() -> Step:
+        return ReadmeSteps.remember_step(CreateEnvGPTFour())
+
+    @staticmethod
     def yml_create_aoai(yaml_name: str) -> Step:
         return ReadmeSteps.remember_step(CreateAoaiFromYaml(yaml_name=yaml_name))
 
@@ -208,6 +253,10 @@ class ReadmeSteps:
     @staticmethod
     def azure_login() -> Step:
         return ReadmeSteps.remember_step(AzureLoginStep())
+
+    @staticmethod
+    def login_again() -> Step:
+        return ReadmeSteps.remember_step(LoginAgainStep())
 
     @staticmethod
     def install_dependencies() -> Step:
@@ -228,6 +277,10 @@ class ReadmeSteps:
     @staticmethod
     def extract_steps_and_run_gpt_four() -> Step:
         return ReadmeSteps.remember_step(ExtractStepsAndRunGPTFour())
+
+    @staticmethod
+    def execute_command() -> Step:
+        return ReadmeSteps.remember_step(ExecuteCommand())
 
     # endregion steps
 
@@ -266,11 +319,16 @@ class ReadmeStepsManage:
         Get the base directory of the git repo
         """
         if ReadmeStepsManage.repo_base_dir == "":
-            ReadmeStepsManage.repo_base_dir = (
-                subprocess.check_output(["git", "rev-parse", "--show-toplevel"])
-                .decode("utf-8")
-                .strip()
-            )
+            try:
+                ReadmeStepsManage.repo_base_dir = (
+                    subprocess.check_output(["git", "rev-parse", "--show-toplevel"])
+                    .decode("utf-8")
+                    .strip()
+                )
+                raise Exception("Not in git repo")
+            except Exception:
+                ReadmeStepsManage.repo_base_dir = Path(__file__).parent.parent.parent.parent.resolve()
+                print(ReadmeStepsManage.repo_base_dir)
         return ReadmeStepsManage.repo_base_dir
 
     @staticmethod
@@ -283,14 +341,37 @@ class ReadmeStepsManage:
         schedule_hour = (name_hash // 60) % 4 + 19  # 19-22 UTC
 
         if "tutorials" in workflow_name:
-            path_filter = f"[ examples/**, .github/workflows/{workflow_name}.yml ]"
+            # markdown filename has some exceptions, special handle here
+            if "chat_with_pdf" in workflow_name:
+                readme_name = "chat-with-pdf.md"
+            elif (
+                "fine_tuning_evaluation_promptflow_quality_improvement" in workflow_name
+            ):
+                readme_name = "promptflow-quality-improvement.md"
+            else:
+                readme_name = "README.md"
+            readme_path = (
+                Path(ReadmeStepsManage.git_base_dir())
+                / ReadmeSteps.working_dir
+                / readme_name
+            )
+            # local import to avoid circular import
+            from .resource_resolver import resolve_tutorial_resource
+
+            path_filter = resolve_tutorial_resource(
+                workflow_name, readme_path.resolve(), output_telemetry
+            )
         else:
-            if "web_classification" in workflow_name:
+            if (
+                "flow_with_additional_includes" in workflow_name
+                or "flow_with_symlinks" in workflow_name
+            ):
+                # these two flows have dependencies on flow web-classification
+                # so corresponding workflows should also listen to changes in web-classification
                 path_filter = (
                     f"[ {ReadmeSteps.working_dir}/**, "
                     + "examples/*requirements.txt, "
-                    + "examples/flows/standard/flow-with-additional-includes/**, "
-                    + "examples/flows/standard/flow-with-symlinks/** ,"
+                    + "examples/flows/standard/web-classification/**, "
                     + f".github/workflows/{workflow_name}.yml ]"
                 )
             else:
@@ -331,3 +412,4 @@ class ReadmeStepsManage:
         output_telemetry.target_path = target_path
         output_telemetry.readme_folder = ReadmeSteps.working_dir
         output_telemetry.readme_name = ReadmeSteps.readme_name
+        output_telemetry.path_filter = path_filter

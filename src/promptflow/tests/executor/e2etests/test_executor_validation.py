@@ -1,25 +1,24 @@
 import json
-import sys
 from pathlib import Path
+from tempfile import mkdtemp
 
 import pytest
 
-from promptflow._core._errors import FlowOutputUnserializable
-from promptflow._core.tool_meta_generator import PythonParsingError
+from promptflow._core._errors import FlowOutputUnserializable, InvalidSource
 from promptflow._core.tools_manager import APINotFound
-from promptflow._sdk._constants import DAG_FILE_NAME
+from promptflow._utils.flow_utils import resolve_flow_path
+from promptflow._utils.utils import dump_list_to_jsonl
+from promptflow.batch import BatchEngine
 from promptflow.contracts._errors import FailedToImportModule
-from promptflow.contracts.run_info import Status
 from promptflow.executor import FlowExecutor
 from promptflow.executor._errors import (
-    ConnectionNotFound,
     DuplicateNodeName,
     EmptyOutputReference,
+    GetConnectionError,
     InputNotFound,
     InputReferenceNotFound,
     InputTypeError,
-    InvalidFlowRequest,
-    InvalidSource,
+    InvalidConnectionType,
     NodeCircularDependency,
     NodeInputValidationError,
     NodeReferenceNotFound,
@@ -27,9 +26,8 @@ from promptflow.executor._errors import (
     ResolveToolError,
     SingleNodeValidationError,
 )
-from promptflow.executor.flow_executor import BulkResult
 
-from ..utils import FLOW_ROOT, WRONG_FLOW_ROOT, get_yaml_file
+from ..utils import FLOW_ROOT, WRONG_FLOW_ROOT, get_flow_folder, get_flow_inputs_file, get_yaml_file
 
 
 @pytest.mark.usefixtures("use_secrets_config_file", "dev_connections")
@@ -38,6 +36,16 @@ class TestValidation:
     @pytest.mark.parametrize(
         "flow_folder, yml_file, error_class, inner_class, error_msg",
         [
+            (
+                "flow_llm_with_wrong_conn",
+                "flow.dag.yaml",
+                ResolveToolError,
+                InvalidConnectionType,
+                (
+                    "Tool load failed in 'wrong_llm': "
+                    "(InvalidConnectionType) Connection type CustomConnection is not supported for LLM."
+                ),
+            ),
             (
                 "nodes_names_duplicated",
                 "flow.dag.yaml",
@@ -144,7 +152,7 @@ class TestValidation:
     @pytest.mark.parametrize(
         "flow_folder, yml_file, error_class, inner_class",
         [
-            ("source_file_missing", "flow.dag.python.yaml", ResolveToolError, PythonParsingError),
+            ("source_file_missing", "flow.dag.python.yaml", ResolveToolError, InvalidSource),
         ],
     )
     def test_executor_create_failure_type(self, flow_folder, yml_file, error_class, inner_class, dev_connections):
@@ -169,11 +177,10 @@ class TestValidation:
     @pytest.mark.parametrize(
         "flow_folder, error_class, inner_class",
         [
-            ("invalid_connection", ResolveToolError, ConnectionNotFound),
+            ("invalid_connection", ResolveToolError, GetConnectionError),
             ("tool_type_missing", ResolveToolError, NotImplementedError),
             ("wrong_module", FailedToImportModule, None),
             ("wrong_api", ResolveToolError, APINotFound),
-            ("wrong_provider", ResolveToolError, APINotFound),
         ],
     )
     def test_invalid_flow_dag(self, flow_folder, error_class, inner_class, dev_connections):
@@ -187,6 +194,7 @@ class TestValidation:
         [
             ("simple_flow_with_python_tool", {"num11": "22"}, InputNotFound),
             ("simple_flow_with_python_tool", {"num": "hello"}, InputTypeError),
+            ("python_tool_with_simple_image_without_default", {}, InputNotFound),
         ],
     )
     def test_flow_run_input_type_invalid(self, flow_folder, line_input, error_class, dev_connections):
@@ -194,6 +202,22 @@ class TestValidation:
         executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections)
         with pytest.raises(error_class):
             executor.exec_line(line_input)
+
+    def test_invalid_flow_run_inputs_should_not_saved_to_run_info(self, dev_connections):
+        flow_folder = "simple_flow_with_python_tool"
+        executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections, raise_ex=False)
+        invalid_input = {"num": "hello"}
+        result = executor.exec_line(invalid_input)
+        # For invalid inputs, we don't assigin them to run info.
+        assert result.run_info.inputs is None
+
+    def test_valid_flow_run_inpust_should_saved_to_run_info(self, dev_connections):
+        flow_folder = "simple_flow_with_python_tool"
+        executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections, raise_ex=False)
+        valid_input = {"num": 22}
+        result = executor.exec_line(valid_input)
+        # For valid inputs, we assigin them to run info.
+        assert result.run_info.inputs == valid_input
 
     @pytest.mark.parametrize(
         "flow_folder, line_input, error_class, error_msg",
@@ -217,20 +241,11 @@ class TestValidation:
         assert error_msg == res.run_info.error["message"]
 
     @pytest.mark.parametrize(
-        "flow_folder, batch_input, error_message, error_class",
+        "flow_folder, inputs_mapping, error_message, error_class",
         [
             (
                 "simple_flow_with_python_tool",
-                [{"num11": "22"}],
-                (
-                    "The value for flow input 'num' is not provided in line 0 of input data. "
-                    "Please review your input data or remove this input in your flow if it's no longer needed."
-                ),
-                "InputNotFound",
-            ),
-            (
-                "simple_flow_with_python_tool",
-                [{"num": "hello"}],
+                {"num": "${data.num}"},
                 (
                     "The input for flow is incorrect. The value for flow input 'num' in line 0 of input data does not "
                     "match the expected type 'int'. Please change flow input type or adjust the input value in "
@@ -240,29 +255,24 @@ class TestValidation:
             ),
         ],
     )
-    def test_bulk_run_input_type_invalid(self, flow_folder, batch_input, error_message, error_class, dev_connections):
+    def test_batch_run_input_type_invalid(
+        self, flow_folder, inputs_mapping, error_message, error_class, dev_connections
+    ):
         # Bulk run - the input is from sample.json
-        executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections)
-        bulk_result = executor.exec_bulk(
-            batch_input,
+        batch_engine = BatchEngine(
+            get_yaml_file(flow_folder), get_flow_folder(flow_folder), connections=dev_connections
         )
-        if (
-            (sys.version_info.major == 3)
-            and (sys.version_info.minor >= 11)
-            and ((sys.platform == "linux") or (sys.platform == "darwin"))
-        ):
-            # Python >= 3.11 has a different error message on linux and macos
-            error_message_compare = error_message.replace("int", "ValueType.INT")
-            assert error_message_compare in str(
-                bulk_result.line_results[0].run_info.error
-            ), f"Expected message {error_message_compare} but got {str(bulk_result.line_results[0].run_info.error)}"
-        else:
-            assert error_message in str(
-                bulk_result.line_results[0].run_info.error
-            ), f"Expected message {error_message} but got {str(bulk_result.line_results[0].run_info.error)}"
+        input_dirs = {"data": get_flow_inputs_file(flow_folder)}
+        output_dir = Path(mkdtemp())
+        batch_results = batch_engine.run(input_dirs, inputs_mapping, output_dir)
+
+        assert error_message in str(
+            batch_results.error_summary.error_list[0].error
+        ), f"Expected message {error_message} but got {str(batch_results.error_summary.error_list[0].error)}"
+
         assert error_class in str(
-            bulk_result.line_results[0].run_info.error
-        ), f"Expected message {error_class} but got {str(bulk_result.line_results[0].run_info.error)}"
+            batch_results.error_summary.error_list[0].error
+        ), f"Expected message {error_class} but got {str(batch_results.error_summary.error_list[0].error)}"
 
     @pytest.mark.parametrize(
         "path_root, flow_folder, node_name, line_input, error_class, error_msg",
@@ -329,9 +339,10 @@ class TestValidation:
         self, path_root: str, flow_folder, node_name, line_input, error_class, error_msg, dev_connections
     ):
         # Single Node run - the inputs are from flow_inputs + dependency_nodes_outputs
+        _, flow_file = resolve_flow_path(flow_folder, path_root, check_flow_exist=False)
         with pytest.raises(error_class) as exe_info:
             FlowExecutor.load_and_exec_node(
-                flow_file=DAG_FILE_NAME,
+                flow_file=flow_file,
                 node_name=node_name,
                 flow_inputs=line_input,
                 dependency_nodes_outputs={},
@@ -365,53 +376,43 @@ class TestValidation:
     @pytest.mark.parametrize(
         "flow_folder, batch_input, raise_on_line_failure, error_class",
         [
-            ("simple_flow_with_python_tool", [{"num11": "22"}], True, Exception),
-            ("simple_flow_with_python_tool", [{"num11": "22"}], False, InputNotFound),
             ("simple_flow_with_python_tool", [{"num": "hello"}], True, Exception),
             ("simple_flow_with_python_tool", [{"num": "hello"}], False, InputTypeError),
             ("simple_flow_with_python_tool", [{"num": "22"}], True, None),
             ("simple_flow_with_python_tool", [{"num": "22"}], False, None),
         ],
     )
-    def test_bulk_run_raise_on_line_failure(
+    def test_batch_run_raise_on_line_failure(
         self, flow_folder, batch_input, raise_on_line_failure, error_class, dev_connections
     ):
-        executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections, raise_ex=False)
+        # Bulk run - the input is from sample.json
+        batch_engine = BatchEngine(
+            get_yaml_file(flow_folder), get_flow_folder(flow_folder), connections=dev_connections
+        )
+        # prepare input file and output dir
+        input_file = Path(mkdtemp()) / "inputs.jsonl"
+        dump_list_to_jsonl(input_file, batch_input)
+        input_dirs = {"data": input_file}
+        output_dir = Path(mkdtemp())
+        inputs_mapping = {"num": "${data.num}"}
+
         if error_class is None:
-            result = executor.exec_bulk(batch_input, raise_on_line_failure=raise_on_line_failure)
-            assert len(result.line_results) == 1
-            assert result.line_results[0].run_info.status == Status.Completed
-            assert result.line_results[0].run_info.error is None
+            batch_result = batch_engine.run(
+                input_dirs, inputs_mapping, output_dir, raise_on_line_failure=raise_on_line_failure
+            )
+            assert batch_result.total_lines == 1
+            assert batch_result.completed_lines == 1
+            assert batch_result.error_summary.error_list == []
         else:
             if raise_on_line_failure:
                 with pytest.raises(error_class):
-                    executor.exec_bulk(batch_input, raise_on_line_failure=raise_on_line_failure)
+                    batch_engine.run(
+                        input_dirs, inputs_mapping, output_dir, raise_on_line_failure=raise_on_line_failure
+                    )
             else:
-                result = executor.exec_bulk(batch_input, raise_on_line_failure=raise_on_line_failure)
-                assert result.line_results[0].run_info.status == Status.Failed
-                assert error_class.__name__ in json.dumps(result.line_results[0].run_info.error)
-
-    @pytest.mark.parametrize(
-        "flow_folder, batch_input, validate, error_class,",
-        [
-            ("simple_flow_with_python_tool", [{"num": "14"}], True, None),
-            ("simple_flow_with_python_tool", [{"num": "14"}], False, TypeError),
-            ("simple_flow_with_python_tool", [{"num": 14}], False, None),
-            ("simple_flow_with_python_tool", [{"num11": "14"}], True, InputNotFound),
-            ("simple_flow_with_python_tool", [{"num11": "14"}], False, InvalidFlowRequest),
-            ("simple_flow_with_python_tool", [{"num": "hello"}], True, InputTypeError),
-            ("simple_flow_with_python_tool", [{"num": "hello"}], False, TypeError),
-        ],
-    )
-    def test_bulk_run_validate_inputs(self, flow_folder, batch_input, validate, error_class, dev_connections):
-        executor = FlowExecutor.create(get_yaml_file(flow_folder, FLOW_ROOT), dev_connections, raise_ex=False)
-
-        result = executor.exec_bulk(batch_input, validate_inputs=validate)
-        assert isinstance(result, BulkResult)
-        assert len(result.line_results) == len(batch_input)
-        if error_class is None:
-            assert result.line_results[0].run_info.status == Status.Completed
-            assert result.line_results[0].run_info.error is None
-        else:
-            assert result.line_results[0].run_info.status == Status.Failed
-            assert error_class.__name__ in json.dumps(result.line_results[0].run_info.error)
+                batch_result = batch_engine.run(
+                    input_dirs, inputs_mapping, output_dir, raise_on_line_failure=raise_on_line_failure
+                )
+                assert batch_result.total_lines == 1
+                assert batch_result.failed_lines == 1
+                assert error_class.__name__ in json.dumps(batch_result.error_summary.error_list[0].error)

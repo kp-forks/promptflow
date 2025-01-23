@@ -13,7 +13,7 @@ Install promptflow sdk and other dependencies:
 pip install -r requirements.txt
 ```
 
-Ensure you have put your azure open ai endpoint key in .env file.
+Ensure you have put your azure OpenAI endpoint key in .env file.
 
 ```bash
 cat .env
@@ -37,13 +37,16 @@ pf connection create -f .env --name custom_connection
 
 3. test flow with single line input
 ```bash
-pf flow test --flow . --input ./data/denormalized-flat.jsonl
+pf flow test --flow . --inputs ./data/sample.json
 ```
 
 4. run with multiple lines input
 ```bash
-pf run create --flow . --data ./data
+pf run create --flow . --data ./data --column-mapping history='${data.history}' customer_info='${data.customer_info}'
 ```
+
+You can also skip providing `column-mapping` if provided data has same column name as the flow.
+Reference [here](https://aka.ms/pf/column-mapping) for default behavior when `column-mapping` not provided in CLI.
 
 5. list/show 
 

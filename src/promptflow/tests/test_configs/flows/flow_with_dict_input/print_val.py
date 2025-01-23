@@ -1,10 +1,10 @@
-from promptflow import tool
+from promptflow.core import tool
 
 
 @tool
-def get_val(key):
-    # get from env var
-    print(key)
-    if not isinstance(key, dict):
-        raise TypeError(f"key must be a dict, got {type(key)}")
-    return {"value": f"{key}: {type(key)}"}
+def print_val(val, origin_val):
+    print(val)
+    print(origin_val)
+    if not isinstance(origin_val, dict):
+        raise TypeError(f"key must be a dict, got {type(origin_val)}")
+    return val

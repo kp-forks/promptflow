@@ -21,6 +21,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -29,7 +31,7 @@ jobs:
 
       - name: Get last tag version
         run: |
-          version=$(git tag | tail -1)
+          version=$(git tag -l '*-tools' | sort -V | tail -n 1)
           echo "last_tag_version=$version" >> $GITHUB_ENV
 
       - name: Generate release notes

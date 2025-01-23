@@ -1,5 +1,5 @@
 # Basic flow with custom connection
-A basic standard flow that using custom python tool calls Azure OpenAI with connection info stored in custom connection. 
+A basic standard flow that using custom python tool calls Azure OpenAI with connection info stored in custom connection.
 
 Tools used in this flow：
 - `prompt` tool
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 ```
 
 ## Setup connection
-Prepare your Azure Open AI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
+Prepare your Azure OpenAI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
 
 Create connection if you haven't done that.
 ```bash
@@ -41,7 +41,7 @@ pf flow test --flow .
 pf flow test --flow . --inputs text="Hello World!"
 
 # test node with inputs
-pf flow test --flow . --node llm --inputs prompt="Write a simple Hello World! program that displays the greeting message when executed."
+pf flow test --flow . --node llm --inputs prompt="Write a simple Hello World! program that displays the greeting message."
 
 ```
 
@@ -49,8 +49,11 @@ pf flow test --flow . --node llm --inputs prompt="Write a simple Hello World! pr
 
 - create run
 ```bash
-pf run create --flow . --data ./data.jsonl --stream
+pf run create --flow . --data ./data.jsonl --column-mapping text='${data.text}' --stream
 ```
+
+You can also skip providing `column-mapping` if provided data has same column name as the flow.
+Reference [here](https://aka.ms/pf/column-mapping) for default behavior when `column-mapping` not provided in CLI.
 
 - list and show run meta
 ```bash
@@ -87,7 +90,7 @@ pf connection create --file ../../../connections/azure_openai.yml --set api_key=
 Run flow with newly created connection.
 
 ```bash
-pf run create --flow . --data ./data.jsonl --connections llm.connection=open_ai_connection --stream
+pf run create --flow . --data ./data.jsonl --connections llm.connection=open_ai_connection --column-mapping text='${data.text}' --stream
 ```
 
 ### Run in cloud with connection override
@@ -101,5 +104,5 @@ Run flow with connection `open_ai_connection`.
 az account set -s <your_subscription_id>
 az configure --defaults group=<your_resource_group_name> workspace=<your_workspace_name>
 
-pfazure run create --flow . --data ./data.jsonl --connections llm.connection=open_ai_connection --stream --runtime demo-mir
+pfazure run create --flow . --data ./data.jsonl --connections llm.connection=open_ai_connection --column-mapping text='${data.text}' --stream
 ```

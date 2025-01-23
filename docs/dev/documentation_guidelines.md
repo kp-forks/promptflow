@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide describes how to author Python docstrings for promptflow public interfaces. See our doc site at [Promptflow API reference documentation](https://microsoft.github.io/promptflow/reference/python-library-reference/promptflow.html).
+This guide describes how to author Python docstrings for promptflow public interfaces. See our doc site at [Promptflow API reference documentation](https://microsoft.github.io/promptflow/reference/python-library-reference/promptflow-tracing/promptflow.html).
 
 ## Principles
 
@@ -23,7 +23,7 @@ First please read through [Sphinx style](https://sphinx-rtd-tutorial.readthedocs
 Let's start with a class example:
 ```python
 from typing import Dict, Optional, Union
-from promptflow import PFClient
+from promptflow.client import PFClient
 
 class MyClass:
     """One-line summary of the class.
@@ -131,6 +131,7 @@ In addition to `class docstring` notes:
 You can build the documentation site locally to preview the final effect of your docstring on the rendered site. This will provide you with a clear understanding of how your docstring will appear on our site once your changes are merged into the main branch.
 
 1. Setup your dev environment, see [dev_setup](./dev_setup.md) for details. Sphinx will load all source code to process docstring.
+    - Skip this step if you just want to build the doc site without reference doc, but do remove `-WithReferenceDoc` from the command in step 3.
 2. Install `langchain` package since it is used in our code but not covered in `dev_setup`.
 3. Open a `powershell`, activate the conda env and navigate to `<repo-root>/scripts/docs` , run `doc_generation.ps1`:
     ```pwsh

@@ -1,5 +1,5 @@
 # Basic standard flow
-A basic standard flow using custom python tool that calls Azure OpenAI with connection info stored in environment variables. 
+A basic standard flow using custom python tool that calls Azure OpenAI with connection info stored in environment variables.
 
 Tools used in this flow：
 - `prompt` tool
@@ -17,11 +17,11 @@ pip install -r requirements.txt
 
 ## Run flow
 
-- Prepare your Azure Open AI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
+- Prepare your Azure OpenAI resource follow this [instruction](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/how-to/create-resource?pivots=web-portal) and get your `api_key` if you don't have one.
 
 - Setup environment variables
 
-Ensure you have put your azure open ai endpoint key in [.env](.env) file. You can create one refer to this [example file](.env.example).
+Ensure you have put your azure OpenAI endpoint key in [.env](.env) file. You can create one refer to this [example file](.env.example).
 
 ```bash
 cat .env
@@ -36,14 +36,17 @@ pf flow test --flow .
 pf flow test --flow . --inputs text="Java Hello World!"
 
 # test node with inputs
-pf flow test --flow . --node llm --inputs prompt="Write a simple Hello World program that displays the greeting message when executed."
+pf flow test --flow . --node llm --inputs prompt="Write a simple Hello World program that displays the greeting message."
 ```
 
 - Create run with multiple lines data
 ```bash
 # using environment from .env file (loaded in user code: hello.py)
-pf run create --flow . --data ./data.jsonl --stream
+pf run create --flow . --data ./data.jsonl --column-mapping text='${data.text}' --stream
 ```
+
+You can also skip providing `column-mapping` if provided data has same column name as the flow.
+Reference [here](https://aka.ms/pf/column-mapping) for default behavior when `column-mapping` not provided in CLI.
 
 - List and show run meta
 ```bash
@@ -80,14 +83,14 @@ pf connection show -n open_ai_connection
 **Note**: we used `'` to wrap value since it supports raw value without escape in powershell & bash. For windows command prompt, you may remove the `'` to avoid it become part of the value.
 
 ```bash
-# test with default input value in flow.dag.yaml 
+# test with default input value in flow.dag.yaml
 pf flow test --flow . --environment-variables AZURE_OPENAI_API_KEY='${open_ai_connection.api_key}' AZURE_OPENAI_API_BASE='${open_ai_connection.api_base}'
 ```
 
 - Create run using connection secret binding specified in environment variables, see [run.yml](run.yml)
 ```bash
 # create run
-pf run create --flow . --data ./data.jsonl --stream --environment-variables AZURE_OPENAI_API_KEY='${open_ai_connection.api_key}' AZURE_OPENAI_API_BASE='${open_ai_connection.api_base}'
+pf run create --flow . --data ./data.jsonl --stream --environment-variables AZURE_OPENAI_API_KEY='${open_ai_connection.api_key}' AZURE_OPENAI_API_BASE='${open_ai_connection.api_base}' --column-mapping text='${data.text}'
 # create run using yaml file
 pf run create --file run.yml --stream
 
@@ -106,10 +109,10 @@ az configure --defaults group=<your_resource_group_name> workspace=<your_workspa
 
 - Create run
 ```bash
-# run with environment variable reference connection in azureml workspace 
-pfazure run create --flow . --data ./data.jsonl --environment-variables AZURE_OPENAI_API_KEY='${open_ai_connection.api_key}' AZURE_OPENAI_API_BASE='${open_ai_connection.api_base}' --stream --runtime demo-mir
+# run with environment variable reference connection in azureml workspace
+pfazure run create --flow . --data ./data.jsonl --environment-variables AZURE_OPENAI_API_KEY='${open_ai_connection.api_key}' AZURE_OPENAI_API_BASE='${open_ai_connection.api_base}' --column-mapping text='${data.text}' --stream
 # run using yaml file
-pfazure run create --file run.yml --stream --runtime demo-mir
+pfazure run create --file run.yml --stream
 ```
 
 - List and show run meta
